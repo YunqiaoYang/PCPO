@@ -1,0 +1,15 @@
+Judge_args:
+  pair_num: 8
+  save_all_judgements: true
+  save_judgements: true
+  save_mode: a
+  model_name: Llama3
+  use_original_iteration_dir: any
+  based_on: wrong
+  distance_threshold_up: 5000
+  nearest: 8
+sample_training_data: 15000
+response_num: 16
+
+
+

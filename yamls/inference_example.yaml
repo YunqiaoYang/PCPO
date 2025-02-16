@@ -1,0 +1,23 @@
+bf16: true
+dataset_mixer:
+  ./data/out_Judgement.jsonl: 1.0
+dataset_splits:
+- train
+do_eval: false
+log_level: info
+logging_steps: 1
+max_completion_length: 1800
+max_length: 2048
+max_prompt_length: 1800
+model_name_or_path: ./models/Llama3_8B_Instruct
+num_train_epochs: 3
+optim: adamw_torch
+output_dir: ./data/
+per_device_eval_batch_size: 4
+per_device_train_batch_size: 2
+preprocessing_num_workers: 8
+prompt_type: llama3_math
+push_to_hub: false
+seed: 3407
+torch_dtype: null
+save_ids: false
