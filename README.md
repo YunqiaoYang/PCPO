@@ -50,30 +50,6 @@ pip install -r requirements.txt
 ### Prompt Dataset
 Our training data includes 7.5k GSM8K training set, 7.5k MATH training set, 7.5k subset of Orca-math, and 7.5k subset of Cn-k12, 30k in total. We provide them in the `./qwen-math/data` dir.
 
-### Response Generation
-You have to first generate responses using the prompt dataset.
-```shell
-bash ./scripts/generate.sh MODEL_NAME_OR_PATH iteration_dir_path
-```
-
-### Construct Candidate Pair Set
-We use yaml files to manage the following steps, we provide an example file in the `./yamls/candidate_pair_example.yaml`
-You can run the scripts below to generate candidate pair set:
-```shell
-bash ./scripts/only_levenstein_Judgepair.py yaml_path iteration_dir_path responses_path output_name
-```
-
-### Calculate Weighted Score
-In this step, we utilize the model to get the weighted score of each pair in the candidate pair set.
-```shell
-bash ./scripts/infer_test.bash
-```
-
-### Extract Preference Pairs
-Now, we can extract the final preference pairs based on the weighted score and the candidate pair set.
-```shell
-bash ./scripts/extract_s_t.py infer_result_path iteration_dir_path s_t_values_weighted sample_training_data random
-```
 
 ### PCPO Train
 You can train the next iteration model using the script below:
