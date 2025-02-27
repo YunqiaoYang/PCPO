@@ -76,37 +76,6 @@ if is_wandb_available():
 if is_deepspeed_available():
     import deepspeed
 
-############################################################################################################################################################## newly added
-#-------------------------------------------------------------------------------------------------------------------------------------------------------------
-import difflib
-import nltk
-from nltk.corpus import stopwords
-stop_words = set(stopwords.words('english'))
-stop_words.update([w.capitalize() for w in list(stop_words) if len(w) > 1])
-
-
-def find_modifications(original, corrected, stopword_ids):
-    d = difflib.SequenceMatcher(None, original, corrected)
-    original_modifications = [0] * len(original)
-    corrected_modifications = [0] * len(corrected)
-    
-    for tag, i1, i2, j1, j2 in d.get_opcodes():
-        if tag in ('replace', 'delete'):
-            for i in range(i1, i2):
-                if original[i] not in stopword_ids:
-                    original_modifications[i] = 1
-        if tag in ('replace', 'insert'):
-            for j in range(j1, j2):
-                if corrected[j] not in stopword_ids:
-                    corrected_modifications[j] = 1
-    
-    return original_modifications, corrected_modifications
-#-------------------------------------------------------------------------------------------------------------------------------------------------------------
-############################################################################################################################################################## end of newly added
-# import inspect
-# class CostomAutoModelForCausalLM(AutoModelForCausalLM):
-#     def forward(self,*args,sc_weight=None,**kwargs):
-#         return super().forward(*args, **kwargs)
 
 
 @dataclass
@@ -167,10 +136,7 @@ class PreferenceCollator(DataCollatorMixin):
             sc_weights = [torch.tensor(example["sc_weight"]) for example in examples]
         if "s_t_values_weighted" in examples[0]:
             s_t_values_weighted = [torch.tensor(example["s_t_values_weighted"]) for example in examples]
-        if "s_t_values_weighted_norm" in examples[0]:
-            s_t_values_weighted_norm = [torch.tensor(example["s_t_values_weighted_norm"]) for example in examples]
-        if "s_t_values_weighted_reverse" in examples[0]:
-            s_t_values_weighted_reverse = [torch.tensor(example["s_t_values_weighted_reverse"]) for example in examples]
+
 
         # Pad
         output = {}
@@ -188,10 +154,6 @@ class PreferenceCollator(DataCollatorMixin):
             output["sc_weight"] = sc_weights
         if "s_t_values_weighted" in examples[0]:
             output["s_t_values_weighted"] = s_t_values_weighted
-        if "s_t_values_weighted_norm" in examples[0]:
-            output["s_t_values_weighted_norm"] = s_t_values_weighted_norm
-        if "s_t_values_weighted_reverse" in examples[0]:
-            output["s_t_values_weighted_reverse"] = s_t_values_weighted_reverse
         return output
 
 
@@ -1145,7 +1107,7 @@ class DPOTrainer(Trainer):
         # The beta is a temperature parameter for the DPO loss, typically something in the range of 0.1 to 0.5.
         # We ignore the reference model as beta -> 0. The label_smoothing parameter encodes our uncertainty about the
         # labels and calculates a conservative DPO loss.
-        if self.loss_type in ["sigmoid",'rpo','scpo','pspo','pspo_w_nll']:
+        if self.loss_type in ["sigmoid",'rpo','scpo','pcpo']:
             losses = (
                 -F.logsigmoid(self.beta * logits) * (1 - self.label_smoothing)
                 - F.logsigmoid(-self.beta * logits) * self.label_smoothing
@@ -1269,7 +1231,7 @@ class DPOTrainer(Trainer):
         else:
             raise ValueError(
                 f"Unknown loss type: {self.loss_type}. Should be one of ['sigmoid', 'hinge', 'ipo', 'exo_pair', "
-                "'nca_pair', 'robust', 'bco_pair', 'sppo_hard', 'aot', 'aot_pair', 'apo_zero', 'apo_down', 'rpo','scpo','pspo']"
+                "'nca_pair', 'robust', 'bco_pair', 'sppo_hard', 'aot', 'aot_pair', 'apo_zero', 'apo_down', 'rpo','scpo','pcpo']"
             )
 
         chosen_rewards = self.beta * (chosen_logps.to(device) - ref_chosen_logps.to(device)).detach()
@@ -1474,6 +1436,8 @@ class DPOTrainer(Trainer):
         ####################################################### kl
 
         if self.args.loss_type == 'pcpo':
+            assert self.args.rpo_alpha is not None
+            s_t_values_weighted = torch.stack(batch["s_t_values_weighted"], dim=0).squeeze(-1)
             losses = losses + self.args.rpo_alpha * model_output["nll_loss"] 
             losses = losses * s_t_values_weighted
             
