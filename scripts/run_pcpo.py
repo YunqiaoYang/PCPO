@@ -16,11 +16,12 @@
 import logging
 import random
 import sys
-sys.path.append("/mnt/cache/yangyunqiao/PCPO")
+from pathlib import Path
+root_dir = Path(__file__).resolve().parent.parent
+sys.path.append(str(root_dir))
+
 from trainer.pcpo_trainer import DPOTrainer
 from trainer.pcpo_config import DPOConfig
-
-sys.path.append("/mnt/cache/yangyunqiao/dpo_new")
 
 import torch
 import transformers
