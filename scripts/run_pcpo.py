@@ -16,6 +16,11 @@
 import logging
 import random
 import sys
+sys.path.append("/mnt/cache/yangyunqiao/PCPO")
+from trainer.pcpo_trainer import DPOTrainer
+from trainer.pcpo_config import DPOConfig
+
+sys.path.append("/mnt/cache/yangyunqiao/dpo_new")
 
 import torch
 import transformers
@@ -38,12 +43,68 @@ from alignment import (
     is_adapter_model,
 )
 from peft import PeftConfig, PeftModel
-from trainer.xpo_trainer import DPOTrainer
-from trainer.xpo_config import DPOConfig
+
 import os
 
-logger = logging.getLogger(__name__)
 
+def setup_logger(training_args, model_args, data_args):
+    """
+    Sets up logging for the training script.
+    Logs to both console and file, ensuring proper formatting and multi-process compatibility.
+    """
+
+    logger = logging.getLogger() #get root logger
+    logger.setLevel(logging.INFO)
+    
+    # Define a uniform log format
+    log_format = logging.Formatter(
+        fmt="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    # Clear existing handlers to prevent duplicate logs
+    if logger.hasHandlers():
+        logger.handlers.clear()
+
+    # Console logging (StreamHandler)
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(log_format)
+    logger.addHandler(console_handler)
+    
+
+    # Handle multi-process logging by assigning different log files per process
+    node_rank = int(os.getenv('GROUP_RANK', '0'))
+    os.makedirs(training_args.output_dir, exist_ok=True)
+    log_file = os.path.join(training_args.output_dir, f'train-{node_rank}.log')
+    
+
+    # File logging (FileHandler)
+    file_handler = logging.FileHandler(log_file, mode='w')
+    file_handler.setFormatter(log_format)
+    logger.addHandler(file_handler)
+    
+    
+    error_handler = logging.FileHandler(os.path.join(training_args.output_dir, f'train-{node_rank}-error.log'), mode='a')
+    error_handler.setFormatter(
+    logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s\n%(pathname)s:%(lineno)d\n")
+    )
+    error_handler.setLevel(logging.ERROR)
+    logger.addHandler(error_handler)
+    
+    logging.getLogger("train").setLevel(logging.INFO)
+    transformers.utils.logging.get_logger().setLevel(logging.INFO)
+    logging.getLogger("DeepSpeed").setLevel(logging.INFO)
+    
+    for logger_name in logging.root.manager.loggerDict:
+        logger = logging.getLogger(logger_name)
+        logger.propagate = True  # Allow propagation to root logger for file logging
+
+    # Log basic configuration details
+    logger.info(f"Model parameters: {model_args}")
+    logger.info(f"Data parameters: {data_args}")
+    logger.info(f"Training/evaluation parameters: {training_args}")
+
+    return logger
 
 
 def main():
@@ -53,36 +114,9 @@ def main():
     #######
     # Setup
     #######
-    logging.basicConfig(
-        format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[logging.StreamHandler(sys.stdout)],
-    )
-    log_format = logging.Formatter(
-    fmt="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-    )
-    log_level = training_args.get_process_log_level()
-    logger.setLevel(log_level)
-    transformers.utils.logging.set_verbosity(log_level)
-    transformers.utils.logging.enable_default_handler()
-    transformers.utils.logging.enable_explicit_format()
-    node_rank = int(os.getenv('GROUP_RANK', '0'))
-    if not os.path.exists(training_args.output_dir):
-        os.mkdir(training_args.output_dir)
-    log_file = os.path.join(training_args.output_dir, f'train-{node_rank}.log')
-    file = logging.FileHandler(log_file, mode='a')
-    file.setFormatter(log_format)
-    logger.addHandler(file)
-    transformers.utils.logging.get_logger().addHandler(file)
-    logging.getLogger('DeepSpeed').addHandler(file)
-    logging.getLogger('train').addHandler(file)
+    # Init logger
+    logger = setup_logger(training_args, model_args, data_args)
     
-    # Log on each process the small summary:
-    logger.info(f"Model parameters {model_args}")
-    logger.info(f"Data parameters {data_args}")
-    logger.info(f"Training/evaluation parameters {training_args}")
-
     # Check for last checkpoint
     last_checkpoint = get_checkpoint(training_args)
     if last_checkpoint is not None and training_args.resume_from_checkpoint is None:
@@ -97,7 +131,7 @@ def main():
     keep_columns = ["messages", "chosen", "rejected", "prompt", "completion", "label"]
     if training_args.loss_type == 'scpo':
         keep_columns.append("sc_weight")
-    if 'pspo' in training_args.loss_type:
+    if training_args.loss_type == 'pcpo':
         keep_columns.append("s_t_values_weighted")
     raw_datasets = get_datasets(
         data_args,
@@ -110,45 +144,6 @@ def main():
     )
     column_names = list(raw_datasets["train"].features)
 
-    ###special process for pspo
-    if 'pspo' in training_args.loss_type:
-        if training_args.pspo_normal :
-            all_values = []
-            target_key = "s_t_values_weighted"
-            for split in raw_datasets:
-                all_values.extend(raw_datasets[split][target_key])
-            mean_value = sum(all_values) / len(all_values)
-            def normalize(example):
-                example[target_key] = example[target_key] / mean_value
-                return example
-            def reverse_normalize(example):
-                example[target_key] = mean_value**2 / example[target_key]
-                return example
-            def bio_normalize(example):
-                example[f"{target_key}_norm"] = example[target_key] / mean_value
-                example[f"{target_key}_reverse"] = mean_value**2 / example[target_key]
-                return example
-            if training_args.pspo_normal == 'norm':
-                raw_datasets = raw_datasets.map(
-                    normalize,
-                    num_proc=4,
-                    desc="normalization for pspo weights",
-                )
-            elif training_args.pspo_normal == 'reverse':
-                raw_datasets = raw_datasets.map(
-                    reverse_normalize,
-                    num_proc=4,
-                    desc="reverse_normalization for pspo weights",
-                )
-            elif 'bio' in training_args.pspo_normal:
-                raw_datasets = raw_datasets.map(
-                    bio_normalize,
-                    num_proc=4,
-                    desc="bio_normalization for pspo weights",
-                )
-
-            else:
-                raise ValueError(f"No pspo normalization method")
 
     #####################################
     # Load tokenizer and process datasets

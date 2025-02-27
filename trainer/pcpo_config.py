@@ -189,7 +189,7 @@ class DPOConfig(TrainingArguments):
     prompt_type: str = None
     save_only_model: bool = True
     remove_unused_columns: bool = True
-    pspo_normal: str = None
+
 
     def __post_init__(self):
         if self.max_target_length is not None:
