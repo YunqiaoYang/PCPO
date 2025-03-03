@@ -9,12 +9,6 @@ Recent advances in preference optimization have demonstrated significant potenti
 </p>
 
 
-## 🔍 Table of Contents
-  - [⚙️ Install Requirements](#install-requirements)
-  - [💻 Training Scripts](#training-scripts)
-  - [💹 Evaluation](#evaluation)
-
-
 ## ⚙️ Install Requirements
 
 We followed [alignment-handbook repo](https://github.com/huggingface/alignment-handbook) to bulid our code. You can do as follows to setup the training environment:
